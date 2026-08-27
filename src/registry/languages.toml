@@ -162,6 +162,12 @@ project-open = true
 project-open-globs = ["*.sln", "*.slnx", "*.csproj", "*.vbproj"]
 install = "Microsoft.CodeAnalysis.LanguageServer from the vs-impl feed; it speaks named pipes, so it needs a stdio bridge on PATH as 'roslyn-language-server'"
 
+[language-server.roslyn-vbnet-language-server]
+command = "roslyn-vbnet-language-server"
+project-open = true
+project-open-globs = ["*.sln", "*.slnx", "*.vbproj", "*.csproj"]
+install = "https://github.com/LaunchCG/roslyn-vbnet-languageserver — Roslyn built with VB workspace services, which Microsoft's build omits; needs the same stdio bridge"
+
 [language-server.sqls]
 command = "sqls"
 install = "go install github.com/sqls-server/sqls@latest"
@@ -361,7 +367,7 @@ language-servers = ["roslyn-language-server", "csharp-ls", "omnisharp"]
 name = "vb"
 file-types = ["vb"]
 roots = ["*.sln", "*.vbproj"]
-language-servers = ["roslyn-language-server"]
+language-servers = ["roslyn-vbnet-language-server", "roslyn-language-server"]
 
 [[language]]
 name = "sql"
