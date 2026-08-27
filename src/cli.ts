@@ -5,11 +5,12 @@
 // command connects to it (auto-spawning on first use), issues one request,
 // and prints compact output. `--json` gives machine-readable output.
 
-import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { renderDoctor } from "./doctor.ts";
 import { Daemon } from "./daemon/daemon.ts";
-import { ensureDaemon, call, socketForWorkspace } from "./daemon/rpc.ts";
+import { ensureDaemon, call, isListening, socketForWorkspace } from "./daemon/rpc.ts";
+import { RUNTIME_DIR } from "./paths.ts";
 import type { DaemonRequest, DaemonResponse } from "./daemon/protocol.ts";
 import type { ProgressSink } from "./progress.ts";
 import {
@@ -1001,15 +1002,53 @@ async function runDaemonCommand(
   }
 }
 
-async function runClose(flags: Record<string, boolean | string | number>): Promise<number> {
-  const ws = workspaceRoot(flags);
-  const sock = socketForWorkspace(ws);
+/** Stop one daemon. A socket nobody is listening on belongs to a daemon that
+ *  already died, which is success for `close`; the stale file is reaped so it
+ *  cannot accumulate and break later runs. */
+async function closeSocket(sock: string): Promise<{ stopped: boolean; error?: string }> {
+  if (!(await isListening(sock))) {
+    try {
+      unlinkSync(sock);
+    } catch {}
+    return { stopped: false };
+  }
   try {
     const res = await call(sock, { m: "shutdown" });
-    console.log(res.ok ? c.green("✓ daemon stopped") : c.red(`✘ ${res.e ?? "failed"}`));
-    return res.ok ? 0 : 1;
+    if (res.ok) return { stopped: true };
+    return { stopped: false, error: res.e ?? "failed" };
   } catch (err) {
-    console.error(`${c.red("error")}: ${err instanceof Error ? err.message : String(err)}`);
+    return { stopped: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function runClose(flags: Record<string, boolean | string | number>): Promise<number> {
+  if (flags.all) {
+    let sockets: string[];
+    try {
+      sockets = readdirSync(RUNTIME_DIR)
+        .filter((name) => name.startsWith("daemon-") && name.endsWith(".sock"))
+        .map((name) => join(RUNTIME_DIR, name));
+    } catch {
+      sockets = [];
+    }
+    let stopped = 0;
+    const errors: string[] = [];
+    for (const sock of sockets) {
+      const res = await closeSocket(sock);
+      if (res.stopped) stopped++;
+      if (res.error) errors.push(`${sock}: ${res.error}`);
+    }
+    for (const error of errors) console.error(`${c.red("error")}: ${error}`);
+    console.log(stopped ? c.green(`✓ ${stopped} daemon(s) stopped`) : c.dim("no running daemons"));
+    return errors.length ? 1 : 0;
+  }
+
+  const sock = socketForWorkspace(workspaceRoot(flags));
+  const res = await closeSocket(sock);
+  if (res.error) {
+    console.error(`${c.red("error")}: ${res.error}`);
     return 1;
   }
+  console.log(res.stopped ? c.green("✓ daemon stopped") : c.dim("no running daemon"));
+  return 0;
 }

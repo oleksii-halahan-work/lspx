@@ -32,7 +32,7 @@ export function socketForWorkspace(ws: string): string {
 }
 
 /** Is the daemon's socket currently connectable (i.e. a process is listening)? */
-function isListening(socketPath: string): Promise<boolean> {
+export function isListening(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const sock = connect(socketPath);
     const done = (v: boolean) => {
