@@ -211,6 +211,37 @@ export class LspClientPool {
     return entry.client;
   }
 
+  /** Send the solution/project handshake a server declares it needs.
+   *
+   *  A shallow scan of the workspace root, in the order the globs are listed,
+   *  so a solution wins over the individual projects beside it. The two
+   *  methods are not interchangeable: `solution/open` takes exactly one .sln,
+   *  and passing it a .csproj fails, so the method follows what matched. */
+  private async openProjectFor(
+    entry: ClientEntry,
+    def: ServerDef,
+    onProgress?: ProgressSink,
+  ): Promise<void> {
+    if (!def["project-open"]) return;
+    let names: string[];
+    try {
+      names = readdirSync(this.workspaceRoot);
+    } catch {
+      return;
+    }
+    for (const glob of def["project-open-globs"] ?? []) {
+      const suffix = glob.startsWith("*") ? glob.slice(1) : glob;
+      const hits = names.filter((n) => n.endsWith(suffix)).map((n) => resolve(this.workspaceRoot, n));
+      if (hits.length === 0) continue;
+      const isSolution = suffix === ".sln" || suffix === ".slnx";
+      const method = isSolution ? "solution/open" : "project/open";
+      const targets = isSolution ? hits.slice(0, 1) : hits;
+      onProgress?.(`opening ${targets.map((t) => basename(t)).join(", ")}`);
+      await entry.client.openProject(method, targets);
+      return;
+    }
+  }
+
   private async bootOne(
     entry: ClientEntry,
     def: ServerDef,
@@ -222,6 +253,7 @@ export class LspClientPool {
       await phase(`initializing ${entry.serverId}`, async () => {
         await entry.client.initialize();
         await entry.client.initialized();
+        await this.openProjectFor(entry, def, sink);
       }, sink);
       entry.state = "ready";
     } catch (err) {

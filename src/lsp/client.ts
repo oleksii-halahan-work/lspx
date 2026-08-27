@@ -111,6 +111,9 @@ export class LspClient {
   private diagWaiters = new Map<string, Set<() => void>>();
   private diagGenerationByUri = new Map<string, number>();
   private diagListenerInstalled = false;
+  /** Set by `workspace/projectInitializationComplete`; see `openProject`. */
+  private projectLoaded = false;
+  private projectLoadWaiters = new Set<() => void>();
   /** Latest diagnostics per URI, kept up-to-date as the server publishes
    *  them. Used by the `diagnostics` command — we already receive these
    *  notifications for the readiness signal, so storing them is free. */
@@ -223,7 +226,7 @@ export class LspClient {
   }
 
   constructor(private launch: ServerLaunch) {
-    this.rootUri = URI.file(launch.workspaceRoot).toString();
+    this.rootUri = normalizeUri(launch.workspaceRoot);
     this.logger = launch.logger ?? NullLogger;
   }
 
@@ -292,6 +295,10 @@ export class LspClient {
     // Ignore dynamic-capability registration (we advertise static only)
     // and $/logTrace — handled as raw method strings since the optional
     // request/notification names vary across protocol versions.
+    this.conn.onNotification("workspace/projectInitializationComplete", () => {
+      this.projectLoaded = true;
+      for (const w of [...this.projectLoadWaiters]) w();
+    });
     this.conn.onRequest("client/registerCapability", () => null);
     this.conn.onNotification("$/logTrace", () => { /* ignore */ });
   }
@@ -336,6 +343,44 @@ export class LspClient {
   async initialized(): Promise<void> {
     if (!this.conn) return;
     await this.conn.sendNotification(lsp.InitializedNotification.method, {});
+  }
+
+  /** Tell a server which solution/project to load. Roslyn ignores `rootUri`
+   *  for workspace discovery and answers every request with an error until it
+   *  gets this, so it is sent right after `initialized`. */
+  async openProject(
+    method: "solution/open" | "project/open",
+    paths: string[],
+    timeoutMs = 180_000,
+  ): Promise<void> {
+    if (!this.conn || paths.length === 0) return;
+    const uris = paths.map((p) => normalizeUri(p));
+    const params = method === "solution/open" ? { solution: uris[0] } : { projects: uris };
+    const loaded = this.awaitProjectLoaded(timeoutMs);
+    await this.conn.sendNotification(method, params);
+    await loaded;
+  }
+
+  /** Wait for the server to finish loading what `openProject` asked for.
+   *
+   *  This gate has to hold before any document is opened: a `didOpen` sent
+   *  while the project is still loading binds that document to the
+   *  syntax-only miscellaneous-files workspace permanently, and no amount of
+   *  retrying the query afterwards recovers it.
+   *
+   *  Resolves on timeout rather than wedging the pool, so a server that never
+   *  reports simply degrades to the previous behaviour. */
+  private awaitProjectLoaded(timeoutMs: number): Promise<void> {
+    if (this.projectLoaded) return Promise.resolve();
+    return new Promise((resolve) => {
+      const finish = (): void => {
+        clearTimeout(timer);
+        this.projectLoadWaiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      this.projectLoadWaiters.add(finish);
+    });
   }
 
   /** DidOpen a doc, tracking version. No-op if already open with same text.
@@ -701,9 +746,25 @@ export class LspClient {
 }
 
 /** file: path or already-URI -> canonical file:// URI string. */
+/** Leave a Windows drive colon literal: `file:///c:/x`, not `file:///c%3A/x`.
+ *
+ *  vscode-uri percent-encodes it, and Roslyn's project system rejects that
+ *  outright — it decodes the path to `/c:/x`, fails to build a URI from it,
+ *  and silently falls back to a syntax-only miscellaneous-files workspace, so
+ *  every semantic request comes back wrong rather than erroring. Editors send
+ *  the literal form, which is why servers are built against it.
+ *
+ *  Only the drive colon is decoded. `toString(true)` would also un-encode
+ *  spaces and produce an invalid URI for paths like `C:\Program Files\x`. */
+function literalDriveColon(uri: string): string {
+  return uri.replace(/^(file:\/\/\/[a-zA-Z])%3A/i, "$1:");
+}
+
 export function normalizeUri(fileOrUri: string): string {
-  if (fileOrUri.startsWith("file:")) return URI.parse(fileOrUri).toString();
-  return URI.file(fileOrUri).toString();
+  const uri = fileOrUri.startsWith("file:")
+    ? URI.parse(fileOrUri).toString()
+    : URI.file(fileOrUri).toString();
+  return literalDriveColon(uri);
 }
 
 /** file:// URI -> filesystem path. */

@@ -13,6 +13,14 @@ export interface ServerDef {
   args?: string[];
   install?: string;
   config?: unknown;
+  /** Some servers do not discover the workspace from `rootUri` and stay idle
+   *  until the client explicitly opens a solution or project. Roslyn is the
+   *  notable one: every request fails until it receives `solution/open` or
+   *  `project/open` after `initialized`. */
+  "project-open"?: boolean;
+  /** Globs, relative to the workspace root, naming what to open. Ordered by
+   *  preference — the first pattern that matches anything wins. */
+  "project-open-globs"?: string[];
 }
 
 export interface LanguageDef {

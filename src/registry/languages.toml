@@ -156,6 +156,16 @@ install = "https://github.com/eclipse/eclipse.jdt.ls"
 command = "csharp-ls"
 install = "dotnet tool install -g csharp-ls"
 
+[language-server.roslyn-language-server]
+command = "roslyn-language-server"
+project-open = true
+project-open-globs = ["*.sln", "*.slnx", "*.csproj", "*.vbproj"]
+install = "Microsoft.CodeAnalysis.LanguageServer from the vs-impl feed; it speaks named pipes, so it needs a stdio bridge on PATH as 'roslyn-language-server'"
+
+[language-server.sqls]
+command = "sqls"
+install = "go install github.com/sqls-server/sqls@latest"
+
 [language-server.omnisharp]
 command = "omnisharp"
 args = ["-lsp"]
@@ -345,7 +355,19 @@ language-servers = ["kotlin-language-server"]
 name = "c-sharp"
 file-types = ["cs", "csx"]
 roots = ["*.sln", "*.csproj"]
-language-servers = ["csharp-ls", "omnisharp"]
+language-servers = ["roslyn-language-server", "csharp-ls", "omnisharp"]
+
+[[language]]
+name = "vb"
+file-types = ["vb"]
+roots = ["*.sln", "*.vbproj"]
+language-servers = ["roslyn-language-server"]
+
+[[language]]
+name = "sql"
+file-types = ["sql"]
+roots = []
+language-servers = ["sqls"]
 
 [[language]]
 name = "f-sharp"
