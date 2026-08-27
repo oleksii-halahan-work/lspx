@@ -358,7 +358,32 @@ export class LspClient {
     const params = method === "solution/open" ? { solution: uris[0] } : { projects: uris };
     const loaded = this.awaitProjectLoaded(timeoutMs);
     await this.conn.sendNotification(method, params);
-    await loaded;
+    await Promise.race([loaded, this.pollWorkspaceQueryable(timeoutMs)]);
+  }
+
+  /** Poll `workspace/symbol` until the server answers with results.
+   *
+   *  Backstop for servers that never send the completion notification — the
+   *  VB-enabled Roslyn build is one, and waiting for a notification that
+   *  never arrives costs the full timeout. Safe to race against it because
+   *  `workspace/symbol` is document-independent: unlike `didOpen`, it cannot
+   *  bind a document to the wrong workspace. */
+  private async pollWorkspaceQueryable(timeoutMs: number): Promise<void> {
+    if (!this.conn) return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (this.projectLoaded) return;
+      try {
+        const hits = await this.conn.sendRequest<lsp.SymbolInformation[] | null>(
+          lsp.WorkspaceSymbolRequest.method,
+          { query: "a" } satisfies lsp.WorkspaceSymbolParams,
+        );
+        if (hits && hits.length > 0) return;
+      } catch {
+        // Not queryable yet; keep polling until the deadline.
+      }
+    }
   }
 
   /** Wait for the server to finish loading what `openProject` asked for.
