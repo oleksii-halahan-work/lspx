@@ -14,7 +14,7 @@
 // pi `batch_edit` / `replace_symbols` tools.
 
 import { posToOffset, type EditIO, type LspRange, type TextEdit } from "./edit.ts";
-import { hashContent } from "./lsp/symbol.ts";
+import { hashContent, uriToPathLocal } from "./lsp/symbol.ts";
 
 export interface PlannedEdit {
   /** Absolute filesystem path. */
@@ -277,12 +277,4 @@ export function plannedEditsFromWorkspaceEdit(
   return out;
 }
 
-function uriToPathLocal(uri: string): string {
-  if (!uri.startsWith("file:")) return uri;
-  try {
-    const u = new URL(uri);
-    return decodeURIComponent(u.pathname);
-  } catch {
-    return uri.slice("file://".length);
-  }
-}
+

@@ -816,19 +816,13 @@ export class Daemon {
       // Fall through to workspace/symbol; it may still resolve the target.
     }
 
-    const targets = this.pool.readyClients().filter(
-      (c) => c.client.caps?.workspaceSymbolProvider,
-    );
-    if (targets.length === 0) return { kind: "not-found" };
-    let all: (lsp.SymbolInformation | lsp.WorkspaceSymbol)[] = [];
-    for (const { client } of targets) {
-      try {
-        const res = await this.queryQuiet(() => client.workspaceSymbol(name));
-        if (res) all = all.concat(res);
-      } catch {
-        /* one server's query failed — keep going */
-      }
-    }
+    // Go through the same path as the `ws-symbols` command rather than
+    // issuing a bare workspace/symbol. It primes lazy-project servers by
+    // opening a representative file — tsserver answers "No Project." with no
+    // open document, so a cold `--symbol` lookup would otherwise always come
+    // back empty — and it retries while the workspace index warms up.
+    const all = (await this.wsSymbolsQuery(socket, name)) ?? [];
+
     // Exact-name candidates only (workspace/symbol is fuzzy).
     const exact = all.filter((s) => s.name === name);
     const candidates = filterCandidates(exact, filter);

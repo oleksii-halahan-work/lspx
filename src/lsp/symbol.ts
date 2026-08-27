@@ -274,20 +274,38 @@ function posToOffsetLocal(text: string, pos: lsp.Position): number {
   return Math.min(offset + Math.max(0, pos.character), lineEnd);
 }
 
-function isWithin(path: string, base: string): boolean {
-  if (path === base) return true;
-  return path.startsWith(base.endsWith("/") ? base : base + "/");
+/** Normalize for comparison. `path` is URI-derived, so it uses forward
+ *  slashes and a lower-cased drive letter ("c:/proj"), while `base` comes
+ *  from the daemon's own path handling and keeps the OS spelling
+ *  ("C:\proj"). Comparing them raw makes --within match nothing on Windows.
+ *  Drive-lettered paths are compared case-insensitively, matching how the
+ *  filesystem behaves there; POSIX paths keep their case sensitivity. */
+function normForCompare(p: string): string {
+  const slashed = p.replace(/\\/g, "/");
+  return /^[a-zA-Z]:/.test(slashed) ? slashed.toLowerCase() : slashed;
 }
 
-// Local URI->path to avoid a hard dependency on vscode-uri in this pure module.
-// The daemon path is already absolute, so this is only used for workspace
-// symbol results (which carry file:// URIs).
-function uriToPathLocal(uri: string): string {
+function isWithin(path: string, base: string): boolean {
+  const p = normForCompare(path);
+  const b = normForCompare(base).replace(/\/$/, "");
+  if (p === b) return true;
+  return p.startsWith(b + "/");
+}
+
+/** URI -> path, without a hard dependency on vscode-uri in this pure module.
+ *
+ *  `new URL("file:///c%3A/x").pathname` is "/c%3A/x", which decodes to
+ *  "/c:/x" — a leading slash in front of a drive letter is not a valid
+ *  Windows path and resolves to nonsense like "C:\c:\x". Drop it. POSIX
+ *  paths are unaffected, so "file:///proj/a.ts" stays "/proj/a.ts". */
+export function uriToPathLocal(uri: string): string {
   if (!uri.startsWith("file:")) return uri;
   try {
     const u = new URL(uri);
-    return decodeURIComponent(u.pathname);
+    const p = decodeURIComponent(u.pathname);
+    return /^\/[a-zA-Z]:/.test(p) ? p.slice(1) : p;
   } catch {
     return uri.slice("file://".length);
   }
 }
+

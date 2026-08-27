@@ -8,6 +8,7 @@ import {
   hashContent,
   resolveSymbolAt,
   sliceRange,
+  uriToPathLocal,
 } from "./symbol.ts";
 
 const SRC = [
@@ -154,5 +155,49 @@ describe("filterCandidates", () => {
     const a = out.find((c) => c.path === "/proj/src/a.ts")!;
     expect(a.line).toBe(7);
     expect(a.column).toBe(3);
+  });
+});
+
+describe("uriToPathLocal", () => {
+  test("leaves POSIX paths alone", () => {
+    expect(uriToPathLocal("file:///proj/src/a.ts")).toBe("/proj/src/a.ts");
+  });
+
+  // `new URL(...).pathname` yields "/c%3A/proj/a.ts", which decodes to
+  // "/c:/proj/a.ts". That leading slash makes it an invalid Windows path
+  // that resolve() turns into "C:\c:\proj\a.ts", and every read of it fails.
+  test("drops the leading slash before a Windows drive letter", () => {
+    expect(uriToPathLocal("file:///c%3A/proj/a.ts")).toBe("c:/proj/a.ts");
+  });
+
+  test("decodes percent-escapes in the path", () => {
+    expect(uriToPathLocal("file:///proj/my%20dir/a.ts")).toBe("/proj/my dir/a.ts");
+  });
+
+  test("passes through non-file URIs untouched", () => {
+    expect(uriToPathLocal("untitled:Untitled-1")).toBe("untitled:Untitled-1");
+  });
+});
+
+describe("filterCandidates --within on Windows paths", () => {
+  // URI-derived paths use forward slashes and a lower-cased drive, while
+  // `within` arrives with the OS spelling. Comparing them raw matched
+  // nothing, so every name-based lookup with --within came back empty.
+  const winCands: (lsp.SymbolInformation | lsp.WorkspaceSymbol)[] = [
+    { name: "load", kind: lsp.SymbolKind.Function, location: { uri: "file:///c%3A/proj/src/a.ts", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } } } },
+    { name: "load", kind: lsp.SymbolKind.Function, location: { uri: "file:///c%3A/proj/other/b.ts", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } } } },
+  ];
+
+  test("matches a backslashed, differently-cased drive", () => {
+    const out = filterCandidates(winCands, { within: "C:\\proj\\src" });
+    expect(out.map((c) => c.path)).toEqual(["c:/proj/src/a.ts"]);
+  });
+
+  test("still excludes siblings outside the subtree", () => {
+    expect(filterCandidates(winCands, { within: "C:\\proj\\nope" })).toHaveLength(0);
+  });
+
+  test("does not treat a prefix of a sibling name as inside", () => {
+    expect(filterCandidates(winCands, { within: "C:\\proj\\s" })).toHaveLength(0);
   });
 });
