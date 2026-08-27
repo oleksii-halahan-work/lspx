@@ -391,7 +391,14 @@ interface DiagnosticsResult {
 
 export function formatDiagnostics(v: unknown, o: FormatOpts): string {
   const res = v as DiagnosticsResult;
-  const diags = res.diagnostics ?? [];
+  // `null` means the server never reported. Reporting that as "✓ no
+  // diagnostics" is the one failure mode worth being loud about: it is
+  // indistinguishable from a clean file, so a broken one reads as healthy.
+  if (res.diagnostics === null) {
+    if (o.json) return JSON.stringify({ file: toRel(res.file, o.workspaceRoot), diagnostics: null, available: false }, null, 2);
+    return c.yellow("⚠ diagnostics unavailable (the language server did not report for this file)");
+  }
+  const diags = res.diagnostics;
   const ws = o.workspaceRoot;
   const withSnip = wantSnippet(o);
   const abs = res.file;
