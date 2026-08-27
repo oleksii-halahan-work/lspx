@@ -49,7 +49,7 @@ export interface OpenedDoc {
 }
 
 /** Capabilities we always request — kept tight to what we use. */
-function clientCapabilities(): lsp.ClientCapabilities {
+export function clientCapabilities(): lsp.ClientCapabilities {
   return {
     textDocument: {
       synchronization: { dynamicRegistration: false },
@@ -77,6 +77,11 @@ function clientCapabilities(): lsp.ClientCapabilities {
       },
       formatting: { dynamicRegistration: false },
       rangeFormatting: { dynamicRegistration: false },
+      publishDiagnostics: {
+        relatedInformation: true,
+        versionSupport: false,
+        tagSupport: { valueSet: [1, 2] },
+      },
       diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
     },
     workspace: {
@@ -110,6 +115,18 @@ export class LspClient {
    *  them. Used by the `diagnostics` command — we already receive these
    *  notifications for the readiness signal, so storing them is free. */
   private diagnosticsByUri = new Map<string, lsp.Diagnostic[]>();
+
+  /** True once the server has pushed diagnostics for any document.
+   *
+   *  Some servers (vtsls) only publish for documents that actually have
+   *  something to report, so "no push for this file" is ambiguous on its own:
+   *  it means either "clean" or "never analyzed". A push for some *other*
+   *  URI proves the server does publish, which disambiguates it to "clean".
+   *  Servers that never publish at all (marksman, nil, ...) leave this false,
+   *  and their diagnostics are honestly reported as unavailable. */
+  hasPublishedAnyDiagnostics(): boolean {
+    return this.diagnosticsByUri.size > 0;
+  }
 
   /** Snapshot of the most recent diagnostics for a URI (may be empty).
    *  Returns `undefined` if the server has never reported on this URI
@@ -266,12 +283,12 @@ export class LspClient {
     });
     // Answer workspace/configuration with nulls ("use server defaults").
     // Returning an error here makes some servers (tsserver) skip diagnostics.
-    this.conn.onRequest(lsp.ConfigurationRequest.method, (params) =>
+    this.conn.onRequest(lsp.ConfigurationRequest.method, (params) => {
       // Return an empty object per item ("no overrides, use your defaults")
       // rather than null — some servers (tsserver) won't enable features
       // unless they receive *some* settings object.
-      (params.items ?? []).map(() => ({})),
-    );
+      return (params.items ?? []).map(() => ({}));
+    });
     // Ignore dynamic-capability registration (we advertise static only)
     // and $/logTrace — handled as raw method strings since the optional
     // request/notification names vary across protocol versions.

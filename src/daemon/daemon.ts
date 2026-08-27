@@ -596,6 +596,25 @@ export class Daemon {
    *  building its index) and lazy servers (tsserver's empty-then-real push)
    *  mean the first snapshot can be empty; if so we wait for the next push
    *  that carries real results. */
+  /** Live diagnostics for one file.
+   *
+   *  Servers deliver these in two different ways and on wildly different
+   *  schedules, so all three cases have to be covered or the command reports
+   *  a clean file that isn't:
+   *
+   *  - Push, in phases. tsserver-based servers publish a fast syntax-only
+   *    pass (frequently empty) and then the semantic pass that holds the
+   *    interesting errors. Returning on the first push reports "clean" for a
+   *    file with type errors, so after a push lands we hold for a settle
+   *    window and re-read the latest snapshot.
+   *  - Push, but slowly. vtsls forks separate syntax and semantic servers and
+   *    routinely needs several seconds on a cold project — far longer than
+   *    the 1.2s this used to allow.
+   *  - Pull only (LSP 3.17 `textDocument/diagnostic`). No notification ever
+   *    arrives, so a push wait can only ever time out.
+   *
+   *  `null` means the server never answered, which the formatter reports as
+   *  unavailable. It must stay distinct from `[]` ("analyzed, and clean"). */
   private async diagnosticsQuery(
     socket: Socket,
     a: unknown[],
@@ -603,13 +622,46 @@ export class Daemon {
     const file = this.abs(String(a[0]));
     const client = await this.pool.forFile(file);
     await this.openDoc(socket, String(a[0]));
+
+    const slow = this.pool.serverIdForFile(file) === "rust-analyzer";
+    const pushTimeout = slow ? 12_000 : 5_000;
+    const settleMs = slow ? 8_000 : 700;
+
+    const generation = client.diagnosticsGeneration(file);
     let diags = client.diagnosticsFor(file);
+    let answered = diags !== undefined;
+
     if (!diags || diags.length === 0) {
       this.progressTo(socket, "waiting for diagnostics…");
-      const next = await client.waitForNextDiagnostics(file, 1200);
-      if (next) diags = next;
+      const push = await client.awaitDiagnosticsPushAfter(file, generation, pushTimeout);
+      if (push.fresh) {
+        answered = true;
+        await sleep(settleMs);
+        diags = client.diagnosticsFor(file) ?? push.diagnostics;
+      }
     }
-    return { file, diagnostics: diags ?? null };
+
+    if (!answered || !diags) {
+      try {
+        const pulled = await client.pullDiagnostics(file);
+        if (pulled !== null) {
+          diags = pulled;
+          answered = true;
+        }
+      } catch {
+        // Fall through; a liveness check below may still settle this.
+      }
+    }
+
+    // No push for this file and no pull support. If the server published for
+    // some other document it does publish, so silence about this one means
+    // clean. If it has never published anything, we genuinely do not know.
+    if (!answered && client.hasPublishedAnyDiagnostics()) {
+      diags = [];
+      answered = true;
+    }
+
+    return { file, diagnostics: answered ? (diags ?? []) : null };
   }
 
   /** Rename a symbol across the workspace. prepareRename validates the
