@@ -1214,7 +1214,7 @@ export function formatBatchEdit(v: unknown, o: FormatOpts, applied: boolean): st
   if (r.dryRun) {
     const plan = (r.plan as Array<{ path: string; edits: number; beforeLines: number; afterLines: number }>) ?? [];
     const head = `${c.bold("batch")} ${c.dim("dry-run")}  ${plan.length} file${plan.length === 1 ? "" : "s"}, ${r.edits} edit${Number(r.edits) === 1 ? "" : "s"}`;
-    const body = plan.map((f) => `  ${c.cyan(f.path)} ${f.edits} edit${f.edits === 1 ? "" : "s"} ${c.dim(`${f.beforeLines}→${f.afterLines} lines`)}`).join("\n");
+    const body = plan.map((f) => `  ${c.cyan(toRel(f.path, o.workspaceRoot))} ${f.edits} edit${f.edits === 1 ? "" : "s"} ${c.dim(`${f.beforeLines}→${f.afterLines} lines`)}`).join("\n");
     return head + (body ? "\n" + body : "") + "\n" + c.dim("  dry-run; pass --apply");
   }
   const verification = r.verification as { files?: Array<Record<string, unknown>> } | undefined;
