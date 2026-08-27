@@ -5,13 +5,21 @@
 import { describe, it, expect } from "bun:test";
 import { posToOffset, applyWorkspaceEdit, type EditIO } from "./edit.ts";
 
+/** Fixtures are written POSIX-style ("/a.ts") but `applyWorkspaceEdit` works
+ *  in host-native paths, which `uriToPath` renders as "\a.ts" on Windows.
+ *  Normalizing in the test keeps the fixtures readable and the suite
+ *  platform-independent, without forcing a separator on the product code —
+ *  `ApplyResult.paths` is fed back to the filesystem and LSP layers, so it
+ *  must stay native. */
+const norm = (p: string) => p.replace(/\\/g, "/");
+
 /** Build an in-memory IO seeded with the given files. */
 function memIO(files: Record<string, string>): EditIO {
-  const store = new Map(Object.entries(files));
+  const store = new Map(Object.entries(files).map(([path, text]) => [norm(path), text]));
   return {
-    read: (p) => store.get(p) ?? "",
+    read: (p) => store.get(norm(p)) ?? "",
     write: (p, t) => {
-      store.set(p, t);
+      store.set(norm(p), t);
     },
   };
 }
@@ -81,7 +89,7 @@ describe("applyWorkspaceEdit", () => {
     expect(io.read("/a.ts")).toBe("baz(bar)");
     expect(r.files).toBe(1);
     expect(r.edits).toBe(1);
-    expect(r.paths).toEqual(["/a.ts"]);
+    expect(r.paths.map(norm)).toEqual(["/a.ts"]);
   });
 
   it("multiple edits in the same file applied end-first (no offset shift)", () => {
@@ -116,7 +124,7 @@ describe("applyWorkspaceEdit", () => {
     expect(io.read("/b.ts")).toBe("TWO");
     expect(r.files).toBe(2);
     expect(r.edits).toBe(2);
-    expect(r.paths.sort()).toEqual(["/a.ts", "/b.ts"]);
+    expect(r.paths.map(norm).sort()).toEqual(["/a.ts", "/b.ts"]);
   });
 
   it("multi-line edit spans across newlines", () => {

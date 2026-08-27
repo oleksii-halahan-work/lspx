@@ -49,9 +49,16 @@ type LocResult = lsp.Location | lsp.LocationLink[] | lsp.Location[] | null;
 function uriToAbs(uri: string): string {
   return URI.parse(uri).fsPath;
 }
+/** Emit paths with forward slashes on every platform. Output is a public
+ *  contract that agents parse and feed back in as arguments, so it must not
+ *  vary by host separator. */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 function toRel(abs: string, ws: string): string {
   const r = relative(ws, abs);
-  return r && !r.startsWith("..") ? r : abs;
+  return toPosix(r && !r.startsWith("..") ? r : abs);
 }
 
 function toFlat(v: LocResult, o: FormatOpts): FlatLoc[] {
@@ -1035,8 +1042,8 @@ function normEdge(e: RawCodemapEdge, ws: string): FlatCodemapEdge {
 /** Relative for workspace files; basename for external (deps, stdlib). */
 function shortPath(abs: string, ws: string): string {
   const r = relative(ws, abs);
-  if (r && !r.startsWith("..")) return r;
-  return abs.split("/").pop() ?? abs;
+  if (r && !r.startsWith("..")) return toPosix(r);
+  return toPosix(abs).split("/").pop() ?? abs;
 }
 
 function renderCodemapSymbol(sym: FlatCodemapSymbol, depth: number): string {
