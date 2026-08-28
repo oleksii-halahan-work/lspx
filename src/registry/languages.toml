@@ -512,7 +512,11 @@ language-servers = ["vscode-css-language-server"]
 
 [[language]]
 name = "html"
-file-types = ["html", "htm"]
+# Razor and WebForms views are served as HTML deliberately. Their embedded
+# code gets no semantics, but the markup, CSS and script do, and no language
+# server exists for VB Razor at all — Visual Studio's own support for it is
+# incomplete. SonarSource classifies these the same way.
+file-types = ["html", "htm", "vbhtml", "cshtml", "aspx", "ascx", "master"]
 roots = []
 language-servers = ["vscode-html-language-server"]
 
