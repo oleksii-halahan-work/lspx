@@ -172,6 +172,11 @@ project-open = true
 project-open-globs = ["*.sln", "*.slnx", "*.csproj", "*.vbproj"]
 install = "Microsoft.CodeAnalysis.LanguageServer from the vs-impl feed; it speaks named pipes, so it needs a stdio bridge on PATH as 'roslyn-language-server'"
 
+[language-server.vb-ls]
+command = "vb-ls"
+install = "dotnet tool install -g vb-ls --version 0.3.0"
+auto-install = { manager = "dotnet", packages = ["vb-ls"] }
+
 [language-server.roslyn-vbnet-language-server]
 command = "roslyn-vbnet-language-server"
 project-open = true
@@ -377,7 +382,7 @@ language-servers = ["roslyn-language-server", "csharp-ls", "omnisharp"]
 name = "vb"
 file-types = ["vb"]
 roots = ["*.sln", "*.vbproj"]
-language-servers = ["roslyn-vbnet-language-server", "roslyn-language-server"]
+language-servers = ["vb-ls", "roslyn-vbnet-language-server", "roslyn-language-server"]
 
 [[language]]
 name = "sql"
