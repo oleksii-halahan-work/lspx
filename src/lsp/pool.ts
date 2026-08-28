@@ -266,6 +266,7 @@ export class LspClientPool {
         await entry.client.initialized();
         await this.openProjectFor(entry, def, sink);
       }, sink);
+      await phase(`loading project for ${entry.serverId}`, () => entry.client.awaitIdle(), sink);
       entry.state = "ready";
     } catch (err) {
       entry.state = "error";
